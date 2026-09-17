@@ -40,6 +40,31 @@ def calculator(expression: str) -> Any:
     return eval(expression, {"__builtins__": {}}, {})
 
 
+def multiply(x: float, y: float) -> dict[str, Any]:
+    """两个数相乘。"""
+    return {"x": x, "y": y, "product": x * y}
+
+
+registry.register(
+    multiply,
+    description="计算两个数的乘积，例如 multiply(12, 34)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "x": {
+                "type": "number",
+                "description": "第一个乘数",
+            },
+            "y": {
+                "type": "number",
+                "description": "第二个乘数",
+            },
+        },
+        "required": ["x", "y"],
+        "additionalProperties": False,
+    },
+)
+
 registry.register(
     calculator,
     description="进行基础数学计算，例如 '(100+20)*0.8'。",

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import httpx
+
+logger = logging.getLogger("agent")
 
 
 @dataclass
@@ -85,11 +88,13 @@ class Agent:
         system_prompt: str,
         tools: ToolRegistry | None = None,
         max_steps: int = 8,
+        verbose: bool = True,
     ) -> None:
         self.config = config
         self.system_prompt = system_prompt
         self.tools = tools or ToolRegistry()
         self.max_steps = max_steps
+        self.verbose = verbose
 
     def _chat(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/chat/completions"
@@ -139,7 +144,15 @@ class Agent:
 
         trace: list[dict[str, Any]] = []
 
+        if self.verbose:
+            logger.info("=" * 50)
+            logger.info("Agent 启动 | 模型: %s | 最大步数: %d", self.config.model, self.max_steps)
+            logger.info("可用工具: %s", [t["function"]["name"] for t in self.tools.schemas()])
+
         for step in range(1, self.max_steps + 1):
+            if self.verbose:
+                logger.info("--- Step %d/%d ---", step, self.max_steps)
+
             raw = self._chat(messages)
             message = raw["choices"][0]["message"]
             assistant_message = self._normalize_assistant_message(message)
@@ -156,6 +169,8 @@ class Agent:
             )
 
             if not tool_calls:
+                if self.verbose:
+                    logger.info("模型未请求工具 → 返回最终答案")
                 return {
                     "answer": message.get("content") or "",
                     "messages": messages,
@@ -168,6 +183,9 @@ class Agent:
                 tool_name = fn["name"]
 
                 raw_args = fn.get("arguments") or "{}"
+                if self.verbose:
+                    logger.info("调用工具: %s(%s)", tool_name, raw_args)
+
                 try:
                     arguments = json.loads(raw_args)
                 except json.JSONDecodeError as e:
@@ -176,15 +194,21 @@ class Agent:
                         "error": f"Invalid tool arguments JSON: {e}",
                         "raw_arguments": raw_args,
                     }
+                    if self.verbose:
+                        logger.error("工具参数解析失败: %s", e)
                 else:
                     try:
                         output = self.tools.call(tool_name, arguments)
                         result = {"ok": True, "result": output}
+                        if self.verbose:
+                            logger.info("工具返回: %s", json.dumps(output, ensure_ascii=False, default=str)[:200])
                     except Exception as e:
                         result = {
                             "ok": False,
                             "error": f"{type(e).__name__}: {e}",
                         }
+                        if self.verbose:
+                            logger.error("工具执行失败: %s", e)
 
                 trace.append(
                     {
